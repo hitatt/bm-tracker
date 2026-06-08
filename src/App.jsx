@@ -136,6 +136,8 @@ export default function App() {
         bank[ev.player] += ev.amount;
       } else if (ev.type === "withdraw") {
         bank[ev.player] -= ev.amount;
+      } else if (ev.type === "withdraw_wallet") {
+        wallet[ev.player] -= ev.amount;
       }
     }
     return { bank, wallet };
@@ -196,7 +198,7 @@ export default function App() {
     if (!amt || amt <= 0) return showFlash("Podaj kwotę!", "error");
     const pi = bankForm.player;
     if (bankForm.subtype === "deposit") {
-      if (walletBal[pi] < amt) return showFlash(`${playerNames[pi]} ma tylko ${fmtS(walletBal[pi])} w portfelu!`, "error");
+      // brak limitu - można wpłacić dowolną kwotę do banku
     } else {
       if (bankBal[pi] < amt) return showFlash(`${playerNames[pi]} ma tylko ${fmtS(bankBal[pi])} w banku!`, "error");
     }
@@ -205,6 +207,17 @@ export default function App() {
     setBankForm(f => ({ ...f, amount: "", note: "" }));
     await saveEvents(next);
     showFlash(bankForm.subtype === "deposit" ? "Wpłacono do banku ✓" : "Wypłacono z banku ✓");
+  }
+
+  async function clearWallet(playerIndex) {
+    const name = playerNames[playerIndex];
+    const amt = walletBal[playerIndex];
+    if (amt <= 0) return showFlash("Portfel juz jest pusty!", "error");
+    if (!window.confirm(`Wyzerowac portfel gracza ${name} (${fmtS(amt)})?`)) return;
+    const ev = { id: Date.now(), type: "withdraw_wallet", player: playerIndex, amount: amt, note: "Wyzerowanie portfela", date: D() };
+    const next = [ev, ...events];
+    await saveEvents(next);
+    showFlash(`Portfel ${name} wyzerowany`);
   }
 
   async function deleteEvent(id) {
@@ -296,8 +309,8 @@ export default function App() {
     return { fontSize: 10, color: "#6a5a3a", letterSpacing: 1, display: "block", marginBottom: 6 };
   }
 
-  const typeColors = { sell: "#8adc8a", buy: "#ff8a8a", loss: "#ff6644", deposit: "#4a8adc", withdraw: "#c9a84c" };
-  const typeLabels = { sell: "💰 SPRZEDAŻ", buy: "📦 ZAKUP", loss: "💀 STRATA", deposit: "⬆ WPŁATA", withdraw: "⬇ WYPŁATA" };
+  const typeColors = { sell: "#8adc8a", buy: "#ff8a8a", loss: "#ff6644", deposit: "#4a8adc", withdraw: "#c9a84c", withdraw_wallet: "#ff8adc" };
+  const typeLabels = { sell: "💰 SPRZEDAŻ", buy: "📦 ZAKUP", loss: "💀 STRATA", deposit: "⬆ WPŁATA", withdraw: "⬇ WYPŁATA", withdraw_wallet: "🧹 WYZEROWANIE PORTFELA" };
 
   return (
     <div style={{ minHeight: "100vh", background: "#0d0f14", color: "#e8dcc8", fontFamily: "'Cinzel', Georgia, serif" }}>
@@ -379,7 +392,10 @@ export default function App() {
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <div style={{ background: "#0a1a0a", border: "1px solid #2a4a2a", borderRadius: 8, padding: "9px 10px" }}>
-                      <p style={{ fontSize: 9, color: "#4a7a4a", marginBottom: 3, letterSpacing: 1 }}>PORTFEL (do wypłaty)</p>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                        <p style={{ fontSize: 9, color: "#4a7a4a", letterSpacing: 1 }}>PORTFEL (do wypłaty)</p>
+                        {walletBal[i] > 0 && <button onClick={() => clearWallet(i)} style={{ background: "none", border: "1px solid #ff6b6b44", color: "#ff6b6b88", borderRadius: 5, padding: "2px 6px", fontSize: 8, cursor: "pointer", fontFamily: "inherit", letterSpacing: 0.5 }}>WYZERUJ</button>}
+                      </div>
                       <p style={{ fontSize: 18, color: "#8adc8a", fontWeight: 700 }}>{fmtS(walletBal[i])}</p>
                     </div>
                     <div style={{ background: "#0a0f1a", border: "1px solid #2a3a5a", borderRadius: 8, padding: "9px 10px" }}>
@@ -400,7 +416,9 @@ export default function App() {
               <p style={{ fontSize: 24, color: "#4a8adc", fontWeight: 700 }}>{fmtS(totalBank)}</p>
             </div>
 
-            <button onClick={clearAll} style={{ width: "100%", background: "none", border: "1px solid #ff6b6b55", color: "#ff6b6b99", borderRadius: 8, padding: "11px", cursor: "pointer", fontSize: 10, letterSpacing: 1, fontFamily: "inherit", marginTop: 4 }}>🗑 RESETUJ TRACKER (usuń wszystkie dane)</button>
+            {events.length > 0 && (
+              <button onClick={clearAll} style={{ width: "100%", background: "none", border: "1px solid #ff6b6b15", color: "#ff6b6b33", borderRadius: 8, padding: "7px", cursor: "pointer", fontSize: 9, letterSpacing: 1, fontFamily: "inherit" }}>🗑 WYCZYŚĆ WSZYSTKO</button>
+            )}
           </div>
         )}
 
