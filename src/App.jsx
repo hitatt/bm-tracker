@@ -400,9 +400,7 @@ export default function App() {
               <p style={{ fontSize: 24, color: "#4a8adc", fontWeight: 700 }}>{fmtS(totalBank)}</p>
             </div>
 
-            {events.length > 0 && (
-              <button onClick={clearAll} style={{ width: "100%", background: "none", border: "1px solid #ff6b6b15", color: "#ff6b6b33", borderRadius: 8, padding: "7px", cursor: "pointer", fontSize: 9, letterSpacing: 1, fontFamily: "inherit" }}>🗑 WYCZYŚĆ WSZYSTKO</button>
-            )}
+            <button onClick={clearAll} style={{ width: "100%", background: "none", border: "1px solid #ff6b6b55", color: "#ff6b6b99", borderRadius: 8, padding: "11px", cursor: "pointer", fontSize: 10, letterSpacing: 1, fontFamily: "inherit", marginTop: 4 }}>🗑 RESETUJ TRACKER (usuń wszystkie dane)</button>
           </div>
         )}
 
