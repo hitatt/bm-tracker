@@ -138,6 +138,13 @@ export default function App() {
         bank[ev.player] -= ev.amount;
       } else if (ev.type === "withdraw_wallet") {
         wallet[ev.player] -= ev.amount;
+      } else if (ev.type === "external_deposit") {
+        // wpłata z zewnątrz ("z dupy") - tylko bank rośnie
+        bank[ev.player] += ev.amount;
+      } else if (ev.type === "wallet_to_bank") {
+        // przelew z portfela do banku
+        wallet[ev.player] -= ev.amount;
+        bank[ev.player] += ev.amount;
       }
     }
     return { bank, wallet };
@@ -198,15 +205,25 @@ export default function App() {
     if (!amt || amt <= 0) return showFlash("Podaj kwotę!", "error");
     const pi = bankForm.player;
     if (bankForm.subtype === "deposit") {
-      // brak limitu - można wpłacić dowolną kwotę do banku
-    } else {
+      if (walletBal[pi] < amt) return showFlash(`${playerNames[pi]} ma tylko ${fmtS(walletBal[pi])} w portfelu!`, "error");
+    } else if (bankForm.subtype === "wallet_to_bank") {
+      if (walletBal[pi] < amt) return showFlash(`${playerNames[pi]} ma tylko ${fmtS(walletBal[pi])} w portfelu!`, "error");
+    } else if (bankForm.subtype === "external_deposit") {
+      // brak limitu – wpłata z zewnątrz
+    } else if (bankForm.subtype === "withdraw") {
       if (bankBal[pi] < amt) return showFlash(`${playerNames[pi]} ma tylko ${fmtS(bankBal[pi])} w banku!`, "error");
     }
     const ev = { id: Date.now(), type: bankForm.subtype, player: pi, amount: amt, note: bankForm.note, date: D() };
     const next = [ev, ...events];
     setBankForm(f => ({ ...f, amount: "", note: "" }));
     await saveEvents(next);
-    showFlash(bankForm.subtype === "deposit" ? "Wpłacono do banku ✓" : "Wypłacono z banku ✓");
+    const msgs = {
+      deposit: "Wpłacono do banku ✓",
+      wallet_to_bank: "Przelano z portfela do banku ✓",
+      external_deposit: "Wpłacono z zewnątrz do banku ✓",
+      withdraw: "Wypłacono z banku ✓",
+    };
+    showFlash(msgs[bankForm.subtype] || "Zapisano ✓");
   }
 
   async function clearWallet(playerIndex) {
@@ -309,8 +326,8 @@ export default function App() {
     return { fontSize: 10, color: "#6a5a3a", letterSpacing: 1, display: "block", marginBottom: 6 };
   }
 
-  const typeColors = { sell: "#8adc8a", buy: "#ff8a8a", loss: "#ff6644", deposit: "#4a8adc", withdraw: "#c9a84c", withdraw_wallet: "#ff8adc" };
-  const typeLabels = { sell: "💰 SPRZEDAŻ", buy: "📦 ZAKUP", loss: "💀 STRATA", deposit: "⬆ WPŁATA", withdraw: "⬇ WYPŁATA", withdraw_wallet: "🧹 WYZEROWANIE PORTFELA" };
+  const typeColors = { sell: "#8adc8a", buy: "#ff8a8a", loss: "#ff6644", deposit: "#4a8adc", withdraw: "#c9a84c", withdraw_wallet: "#ff8adc", external_deposit: "#a06aff", wallet_to_bank: "#4adcdc" };
+  const typeLabels = { sell: "💰 SPRZEDAŻ", buy: "📦 ZAKUP", loss: "💀 STRATA", deposit: "⬆ WPŁATA", withdraw: "⬇ WYPŁATA", withdraw_wallet: "🧹 WYZEROWANIE PORTFELA", external_deposit: "🪄 WPŁATA Z ZEWNĄTRZ", wallet_to_bank: "💼 PORTFEL → BANK" };
 
   return (
     <div style={{ minHeight: "100vh", background: "#0d0f14", color: "#e8dcc8", fontFamily: "'Cinzel', Georgia, serif" }}>
@@ -394,7 +411,10 @@ export default function App() {
                     <div style={{ background: "#0a1a0a", border: "1px solid #2a4a2a", borderRadius: 8, padding: "9px 10px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                         <p style={{ fontSize: 9, color: "#4a7a4a", letterSpacing: 1 }}>PORTFEL (do wypłaty)</p>
-                        {walletBal[i] > 0 && <button onClick={() => clearWallet(i)} style={{ background: "none", border: "1px solid #ff6b6b44", color: "#ff6b6b88", borderRadius: 5, padding: "2px 6px", fontSize: 8, cursor: "pointer", fontFamily: "inherit", letterSpacing: 0.5 }}>WYZERUJ</button>}
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {walletBal[i] > 0 && <button onClick={() => { setTab("bank"); setBankForm(f => ({ ...f, subtype: "wallet_to_bank", player: i, amount: String(walletBal[i]) })); }} style={{ background: "none", border: "1px solid #4a8adc44", color: "#4a8adc88", borderRadius: 5, padding: "2px 6px", fontSize: 8, cursor: "pointer", fontFamily: "inherit", letterSpacing: 0.5 }}>→ BANK</button>}
+                          {walletBal[i] > 0 && <button onClick={() => clearWallet(i)} style={{ background: "none", border: "1px solid #ff6b6b44", color: "#ff6b6b88", borderRadius: 5, padding: "2px 6px", fontSize: 8, cursor: "pointer", fontFamily: "inherit", letterSpacing: 0.5 }}>WYZERUJ</button>}
+                        </div>
                       </div>
                       <p style={{ fontSize: 18, color: "#8adc8a", fontWeight: 700 }}>{fmtS(walletBal[i])}</p>
                     </div>
@@ -523,7 +543,12 @@ export default function App() {
             <div style={{ background: "#13161f", border: "1px solid #4a8adc22", borderRadius: 14, padding: 20 }}>
               <h2 style={{ fontSize: 11, color: "#4a8adc", letterSpacing: 2, marginBottom: 16 }}>🏦 OPERACJA BANKOWA</h2>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 14 }}>
-                {[["deposit", "⬆ Wpłać do banku", "z portfela → bank"], ["withdraw", "⬇ Wypłać z banku", "bank → portfel"]].map(([val, label, sub]) => (
+                {[
+                  ["deposit", "⬆ Portfel → Bank", "z portfela → bank"],
+                  ["wallet_to_bank", "💼 Portfel → Bank", "zysk ze sprzedaży → bank"],
+                  ["external_deposit", "🪄 Z zewnątrz → Bank", "korekta / gotówka → bank"],
+                  ["withdraw", "⬇ Wypłać z banku", "bank → portfel"]
+                ].map(([val, label, sub]) => (
                   <button key={val} className="tab-btn" onClick={() => setBankForm(f => ({ ...f, subtype: val }))} style={{
                     padding: "11px 6px", borderRadius: 9,
                     background: bankForm.subtype === val ? "#0a0f1a" : "#0d0f14",
@@ -550,8 +575,9 @@ export default function App() {
                 {bankForm.amount && !isNaN(Number(bankForm.amount)) && (
                   <div style={{ marginTop: 6, fontSize: 10, color: "#4a8adc88", fontFamily: "Georgia, serif" }}>
                     = {fmtS(Number(bankForm.amount))}
-                    {bankForm.subtype === "deposit" && ` · portfel ${playerNames[bankForm.player]}: ${fmtS(walletBal[bankForm.player])}`}
+                    {(bankForm.subtype === "deposit" || bankForm.subtype === "wallet_to_bank") && ` · portfel ${playerNames[bankForm.player]}: ${fmtS(walletBal[bankForm.player])}`}
                     {bankForm.subtype === "withdraw" && ` · bank ${playerNames[bankForm.player]}: ${fmtS(bankBal[bankForm.player])}`}
+                    {bankForm.subtype === "external_deposit" && ` · bank ${playerNames[bankForm.player]}: ${fmtS(bankBal[bankForm.player])}`}
                   </div>
                 )}
               </div>
@@ -560,7 +586,12 @@ export default function App() {
                 <input value={bankForm.note} onChange={e => setBankForm(f => ({ ...f, note: e.target.value }))} placeholder="opcjonalna..." style={inputStyle("#4a8adc33")} />
               </div>
               <button className="action-btn" onClick={addBankAction} disabled={saving} style={{ background: saving ? "#1a2030" : "linear-gradient(135deg,#2a5a9c,#1a3a6c)", color: "#8abcec" }}>
-                {saving ? "ZAPISYWANIE..." : bankForm.subtype === "deposit" ? "⬆ WPŁAĆ DO BANKU" : "⬇ WYPŁAĆ Z BANKU"}
+                {saving ? "ZAPISYWANIE..." : {
+                  deposit: "⬆ WPŁAĆ DO BANKU (portfel)",
+                  wallet_to_bank: "💼 PRZELEJ PORTFEL → BANK",
+                  external_deposit: "🪄 WPŁAĆ Z ZEWNĄTRZ DO BANKU",
+                  withdraw: "⬇ WYPŁAĆ Z BANKU",
+                }[bankForm.subtype] || "WYKONAJ"}
               </button>
             </div>
           </div>
@@ -580,8 +611,8 @@ export default function App() {
                   const isSell = ev.type === "sell";
                   const isBuy = ev.type === "buy";
                   const isLoss = ev.type === "loss";
-                  const isBank = ev.type === "deposit" || ev.type === "withdraw";
-                  const sign = isSell ? "+" : (isBuy || isLoss) ? "-" : ev.type === "deposit" ? "↑" : "↓";
+                  const isBank = ev.type === "deposit" || ev.type === "withdraw" || ev.type === "external_deposit" || ev.type === "wallet_to_bank";
+                  const sign = isSell ? "+" : (isBuy || isLoss) ? "-" : ev.type === "deposit" || ev.type === "wallet_to_bank" ? "↑" : ev.type === "external_deposit" ? "🪄" : "↓";
                   return (
                     <div key={ev.id} className="tx-row" style={{ background: "#13161f", border: "1px solid #c9a84c0f", borderLeft: `3px solid ${col}`, borderRadius: "0 9px 9px 0", padding: "9px 11px", display: "flex", alignItems: "flex-start", gap: 9 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
