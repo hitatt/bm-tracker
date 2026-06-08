@@ -61,7 +61,7 @@ export default function App() {
 
   const [sellForm, setSellForm] = useState({ item: "", category: "Zbroja", amount: "", split: "50/50", note: "" });
   const [buyForm, setBuyForm] = useState({ item: "", category: "Zbroja", amount: "", split: "50/50", note: "" });
-  const [bankForm, setBankForm] = useState({ subtype: "deposit", player: 0, amount: "", note: "" });
+  const [bankForm, setBankForm] = useState({ subtype: "external_deposit", player: 0, amount: "", note: "" });
   const [lossForm, setLossForm] = useState({ item: "", amount: "", split: "50/50", note: "" });
 
   // Listen to Firebase in real-time
@@ -120,37 +120,27 @@ export default function App() {
 
   function computeBalances(evList, names) {
     const bank = [0, 0];
-    const wallet = [0, 0];
     for (const ev of evList) {
       if (ev.type === "sell") {
+        // zysk ze sprzedaży trafia bezpośrednio do banku
         const shares = splitShares(ev.amount, ev.split, names);
-        wallet[0] += shares[0]; wallet[1] += shares[1];
+        bank[0] += shares[0]; bank[1] += shares[1];
       } else if (ev.type === "buy") {
         const shares = splitShares(ev.amount, ev.split, names);
         bank[0] -= shares[0]; bank[1] -= shares[1];
       } else if (ev.type === "loss") {
         const shares = splitShares(ev.amount, ev.split, names);
         bank[0] -= shares[0]; bank[1] -= shares[1];
-      } else if (ev.type === "deposit") {
-        wallet[ev.player] -= ev.amount;
-        bank[ev.player] += ev.amount;
       } else if (ev.type === "withdraw") {
         bank[ev.player] -= ev.amount;
-      } else if (ev.type === "withdraw_wallet") {
-        wallet[ev.player] -= ev.amount;
       } else if (ev.type === "external_deposit") {
-        // wpłata z zewnątrz ("z dupy") - tylko bank rośnie
-        bank[ev.player] += ev.amount;
-      } else if (ev.type === "wallet_to_bank") {
-        // przelew z portfela do banku
-        wallet[ev.player] -= ev.amount;
         bank[ev.player] += ev.amount;
       }
     }
-    return { bank, wallet };
+    return { bank };
   }
 
-  const { bank: bankBal, wallet: walletBal } = computeBalances(events, playerNames);
+  const { bank: bankBal } = computeBalances(events, playerNames);
   const totalBank = bankBal[0] + bankBal[1];
   const totalRevenue = events.filter(e => e.type === "sell").reduce((s, e) => s + e.amount, 0);
   const totalBought = events.filter(e => e.type === "buy").reduce((s, e) => s + e.amount, 0);
@@ -187,12 +177,6 @@ export default function App() {
   async function addLoss() {
     const amt = Math.round(Number(lossForm.amount));
     if (!amt || amt <= 0) return showFlash("Podaj kwotę straty!", "error");
-    const shares = splitShares(amt, lossForm.split, playerNames);
-    for (let i = 0; i < 2; i++) {
-      if (shares[i] > 0 && bankBal[i] < shares[i]) {
-        return showFlash(`${playerNames[i]} nie ma wystarczająco srebra! (brakuje ${fmtS(shares[i] - bankBal[i])})`, "error");
-      }
-    }
     const ev = { id: Date.now(), type: "loss", ...lossForm, amount: amt, date: D() };
     const next = [ev, ...events];
     setLossForm({ item: "", amount: "", split: "50/50", note: "" });
@@ -204,11 +188,7 @@ export default function App() {
     const amt = Math.round(Number(bankForm.amount));
     if (!amt || amt <= 0) return showFlash("Podaj kwotę!", "error");
     const pi = bankForm.player;
-    if (bankForm.subtype === "deposit") {
-      if (walletBal[pi] < amt) return showFlash(`${playerNames[pi]} ma tylko ${fmtS(walletBal[pi])} w portfelu!`, "error");
-    } else if (bankForm.subtype === "wallet_to_bank") {
-      if (walletBal[pi] < amt) return showFlash(`${playerNames[pi]} ma tylko ${fmtS(walletBal[pi])} w portfelu!`, "error");
-    } else if (bankForm.subtype === "external_deposit") {
+    if (bankForm.subtype === "external_deposit") {
       // brak limitu – wpłata z zewnątrz
     } else if (bankForm.subtype === "withdraw") {
       if (bankBal[pi] < amt) return showFlash(`${playerNames[pi]} ma tylko ${fmtS(bankBal[pi])} w banku!`, "error");
@@ -218,23 +198,10 @@ export default function App() {
     setBankForm(f => ({ ...f, amount: "", note: "" }));
     await saveEvents(next);
     const msgs = {
-      deposit: "Wpłacono do banku ✓",
-      wallet_to_bank: "Przelano z portfela do banku ✓",
       external_deposit: "Wpłacono z zewnątrz do banku ✓",
       withdraw: "Wypłacono z banku ✓",
     };
     showFlash(msgs[bankForm.subtype] || "Zapisano ✓");
-  }
-
-  async function clearWallet(playerIndex) {
-    const name = playerNames[playerIndex];
-    const amt = walletBal[playerIndex];
-    if (amt <= 0) return showFlash("Portfel juz jest pusty!", "error");
-    if (!window.confirm(`Wyzerowac portfel gracza ${name} (${fmtS(amt)})?`)) return;
-    const ev = { id: Date.now(), type: "withdraw_wallet", player: playerIndex, amount: amt, note: "Wyzerowanie portfela", date: D() };
-    const next = [ev, ...events];
-    await saveEvents(next);
-    showFlash(`Portfel ${name} wyzerowany`);
   }
 
   async function deleteEvent(id) {
@@ -326,8 +293,8 @@ export default function App() {
     return { fontSize: 10, color: "#6a5a3a", letterSpacing: 1, display: "block", marginBottom: 6 };
   }
 
-  const typeColors = { sell: "#8adc8a", buy: "#ff8a8a", loss: "#ff6644", deposit: "#4a8adc", withdraw: "#c9a84c", withdraw_wallet: "#ff8adc", external_deposit: "#a06aff", wallet_to_bank: "#4adcdc" };
-  const typeLabels = { sell: "💰 SPRZEDAŻ", buy: "📦 ZAKUP", loss: "💀 STRATA", deposit: "⬆ WPŁATA", withdraw: "⬇ WYPŁATA", withdraw_wallet: "🧹 WYZEROWANIE PORTFELA", external_deposit: "🪄 WPŁATA Z ZEWNĄTRZ", wallet_to_bank: "💼 PORTFEL → BANK" };
+  const typeColors = { sell: "#8adc8a", buy: "#ff8a8a", loss: "#ff6644", withdraw: "#c9a84c", external_deposit: "#a06aff" };
+  const typeLabels = { sell: "💰 SPRZEDAŻ", buy: "📦 ZAKUP", loss: "💀 STRATA", withdraw: "⬇ WYPŁATA", external_deposit: "🪄 WPŁATA Z ZEWNĄTRZ" };
 
   return (
     <div style={{ minHeight: "100vh", background: "#0d0f14", color: "#e8dcc8", fontFamily: "'Cinzel', Georgia, serif" }}>
@@ -407,22 +374,10 @@ export default function App() {
                       <span style={{ fontSize: 11, color: "#c9a84c", fontWeight: 600, cursor: "pointer" }} onClick={() => { setEditingName(i); setTempName(name); }}>{name} ✎</span>
                     )}
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ background: "#0a1a0a", border: "1px solid #2a4a2a", borderRadius: 8, padding: "9px 10px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-                        <p style={{ fontSize: 9, color: "#4a7a4a", letterSpacing: 1 }}>PORTFEL (do wypłaty)</p>
-                        <div style={{ display: "flex", gap: 4 }}>
-                          {walletBal[i] > 0 && <button onClick={() => { setTab("bank"); setBankForm(f => ({ ...f, subtype: "wallet_to_bank", player: i, amount: String(walletBal[i]) })); }} style={{ background: "none", border: "1px solid #4a8adc44", color: "#4a8adc88", borderRadius: 5, padding: "2px 6px", fontSize: 8, cursor: "pointer", fontFamily: "inherit", letterSpacing: 0.5 }}>→ BANK</button>}
-                          {walletBal[i] > 0 && <button onClick={() => clearWallet(i)} style={{ background: "none", border: "1px solid #ff6b6b44", color: "#ff6b6b88", borderRadius: 5, padding: "2px 6px", fontSize: 8, cursor: "pointer", fontFamily: "inherit", letterSpacing: 0.5 }}>WYZERUJ</button>}
-                        </div>
-                      </div>
-                      <p style={{ fontSize: 18, color: "#8adc8a", fontWeight: 700 }}>{fmtS(walletBal[i])}</p>
-                    </div>
-                    <div style={{ background: "#0a0f1a", border: "1px solid #2a3a5a", borderRadius: 8, padding: "9px 10px" }}>
-                      <p style={{ fontSize: 9, color: "#3a5a8a", marginBottom: 3, letterSpacing: 1 }}>BANK</p>
-                      <p style={{ fontSize: 18, color: bankBal[i] < 0 ? "#ff4444" : "#4a8adc", fontWeight: 700 }}>{fmtS(bankBal[i])}</p>
-                      {bankBal[i] < 0 && <p style={{ fontSize: 9, color: "#8a2222", marginTop: 2 }}>⚠ debet!</p>}
-                    </div>
+                  <div style={{ background: "#0a0f1a", border: "1px solid #2a3a5a", borderRadius: 8, padding: "9px 10px" }}>
+                    <p style={{ fontSize: 9, color: "#3a5a8a", marginBottom: 3, letterSpacing: 1 }}>BANK</p>
+                    <p style={{ fontSize: 18, color: bankBal[i] < 0 ? "#ff4444" : "#4a8adc", fontWeight: 700 }}>{fmtS(bankBal[i])}</p>
+                    {bankBal[i] < 0 && <p style={{ fontSize: 9, color: "#8a2222", marginTop: 2 }}>⚠ debet!</p>}
                   </div>
                 </div>
               ))}
@@ -532,8 +487,6 @@ export default function App() {
               {playerNames.map((name, i) => (
                 <div key={i} style={{ background: "#0a0f1a", border: "1px solid #4a8adc33", borderRadius: 12, padding: 14 }}>
                   <p style={{ fontSize: 10, color: "#4a8adc88", marginBottom: 6 }}>{icons[i]} {name}</p>
-                  <p style={{ fontSize: 9, color: "#3a5a7a", marginBottom: 2 }}>PORTFEL</p>
-                  <p style={{ fontSize: 15, color: "#8adc8a", fontWeight: 700, marginBottom: 6 }}>{fmtS(walletBal[i])}</p>
                   <p style={{ fontSize: 9, color: "#3a5a7a", marginBottom: 2 }}>BANK</p>
                   <p style={{ fontSize: 15, color: bankBal[i] < 0 ? "#ff4444" : "#4a8adc", fontWeight: 700 }}>{fmtS(bankBal[i])}</p>
                 </div>
@@ -544,8 +497,6 @@ export default function App() {
               <h2 style={{ fontSize: 11, color: "#4a8adc", letterSpacing: 2, marginBottom: 16 }}>🏦 OPERACJA BANKOWA</h2>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 14 }}>
                 {[
-                  ["deposit", "⬆ Portfel → Bank", "z portfela → bank"],
-                  ["wallet_to_bank", "💼 Portfel → Bank", "zysk ze sprzedaży → bank"],
                   ["external_deposit", "🪄 Z zewnątrz → Bank", "korekta / gotówka → bank"],
                   ["withdraw", "⬇ Wypłać z banku", "bank → portfel"]
                 ].map(([val, label, sub]) => (
@@ -575,7 +526,6 @@ export default function App() {
                 {bankForm.amount && !isNaN(Number(bankForm.amount)) && (
                   <div style={{ marginTop: 6, fontSize: 10, color: "#4a8adc88", fontFamily: "Georgia, serif" }}>
                     = {fmtS(Number(bankForm.amount))}
-                    {(bankForm.subtype === "deposit" || bankForm.subtype === "wallet_to_bank") && ` · portfel ${playerNames[bankForm.player]}: ${fmtS(walletBal[bankForm.player])}`}
                     {bankForm.subtype === "withdraw" && ` · bank ${playerNames[bankForm.player]}: ${fmtS(bankBal[bankForm.player])}`}
                     {bankForm.subtype === "external_deposit" && ` · bank ${playerNames[bankForm.player]}: ${fmtS(bankBal[bankForm.player])}`}
                   </div>
@@ -587,8 +537,6 @@ export default function App() {
               </div>
               <button className="action-btn" onClick={addBankAction} disabled={saving} style={{ background: saving ? "#1a2030" : "linear-gradient(135deg,#2a5a9c,#1a3a6c)", color: "#8abcec" }}>
                 {saving ? "ZAPISYWANIE..." : {
-                  deposit: "⬆ WPŁAĆ DO BANKU (portfel)",
-                  wallet_to_bank: "💼 PRZELEJ PORTFEL → BANK",
                   external_deposit: "🪄 WPŁAĆ Z ZEWNĄTRZ DO BANKU",
                   withdraw: "⬇ WYPŁAĆ Z BANKU",
                 }[bankForm.subtype] || "WYKONAJ"}
@@ -611,8 +559,8 @@ export default function App() {
                   const isSell = ev.type === "sell";
                   const isBuy = ev.type === "buy";
                   const isLoss = ev.type === "loss";
-                  const isBank = ev.type === "deposit" || ev.type === "withdraw" || ev.type === "external_deposit" || ev.type === "wallet_to_bank";
-                  const sign = isSell ? "+" : (isBuy || isLoss) ? "-" : ev.type === "deposit" || ev.type === "wallet_to_bank" ? "↑" : ev.type === "external_deposit" ? "🪄" : "↓";
+                  const isBank = ev.type === "withdraw" || ev.type === "external_deposit";
+                  const sign = isSell ? "+" : (isBuy || isLoss) ? "-" : ev.type === "external_deposit" ? "🪄" : "↓";
                   return (
                     <div key={ev.id} className="tx-row" style={{ background: "#13161f", border: "1px solid #c9a84c0f", borderLeft: `3px solid ${col}`, borderRadius: "0 9px 9px 0", padding: "9px 11px", display: "flex", alignItems: "flex-start", gap: 9 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
