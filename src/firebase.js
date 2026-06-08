@@ -4,7 +4,7 @@ import { getDatabase } from "firebase/database";
 const firebaseConfig = {
   apiKey: "AIzaSyC248mRTvwWMkKcsR1SLxL8Q4OOLsGb3t0",
   authDomain: "bm-tracker-b143d.firebaseapp.com",
-  databaseURL: "https://bm-tracker-b143d-default-rtdb.europe-west1.firebasedatabase.app/",
+  databaseURL: "https://bm-tracker-b143d-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "bm-tracker-b143d",
   storageBucket: "bm-tracker-b143d.firebasestorage.app",
   messagingSenderId: "680483250144",
